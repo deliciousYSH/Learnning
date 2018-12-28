@@ -2862,5 +2862,204 @@ int moveComd(int k)
 //////////////////////////////////////////////////////////////////////
 int batchComd(int k)
 {
+    short i,s,size,j=0,x=0,y=0;
+    char attrib='\0',*FileName;
+    char gFileName[PATH_LEN];			//存放文件全路径名
+    FCB *fcbp;
 
+    if(k!=1)
+    {
+        cout<<"\n命令参数中应只有一个文件名。\n";
+        return -1;
+    }
+    else
+    {
+        s=ProcessPath(comd[1],FileName,k,0,'\020');		//取FileName所在目录首块号
+        if(s<1)
+            return s;
+    }
+
+    s=FindFCB(FileName,s,attrib,fcbp);					//取FileName文件首块号
+    strcpy(gFileName,temppath);
+    i=strlen(temppath);
+    if(temppath[i-1]!='/')
+        strcat(gFileName,"/");
+    strcat(gFileName,FileName);								//构造文件的全路径名
+
+    if(s<0)
+    {
+        cout<<"\n文件"<<gFileName<<"不存在\n";
+        return -3;
+    }
+    if(s==0)
+    {
+        cout<<"\n文件"<<gFileName<<"是空文件\n";
+
+    }
+    else
+    {
+        size=fcbp->Fsize;
+        char Buffer[size+1][size+1];								//分配动态内存空间
+
+        while(s>0)
+        {
+            for(i=0;i<SIZE;i++,j++)
+            {
+                if(j==size) break;
+                if(Disk[s][i]=='\n')
+                {
+                    Buffer[x][y]='\0';
+                    cout<<Buffer[x]<<endl;
+                    x++;
+                    y=0;
+                }
+                else{
+                    Buffer[x][y]=Disk[s][i];
+                    y++;
+                }
+            }
+
+            if(i<SIZE)
+            {
+                Buffer[x][y]='\0';
+                break;
+            }
+            s=FAT[s];
+        }
+
+        for(i=0;i<=x;i++)
+        {
+            cout<<"\nC:";			//显示提示符（假设总是C盘）
+            if(dspath)
+                cout<<curpath.cpath;
+
+            cout<<">";
+            cout<<Buffer[i]<<endl;
+
+            k=ParseCommand(Buffer[i]);		//分解命令
+            ExecComd(k);				    //执行命令
+        }
+
+    }
+    return 1;
+}
+/////////////////////////////////////////////
+int replaceComd(int k)
+{
+    short int i,size,s01,s02,s1,s2,s22,b,b0,bnum;
+    char attrib='\0',*FileName1,*FileName2;
+    char gFileName[PATH_LEN];	//存放文件全路径名
+    FCB *fcbp,*fcbp1,*fcbp2,*fcbp3;
+    if (k<1 || k>2)
+    {
+        cout<<"\n命令中参数太多或太少。\n";
+        return -1;
+    }
+    s01=ProcessPath(comd[1],FileName1,k,0,'\20');//取FileName所在目录的首块号
+    if (s01<1)			//路径错误
+        return s01;		//失败，返回
+    s1=FindFCB(FileName1,s01,attrib,fcbp);	//取FileName(源文件)的首块号(查其存在性)
+    if (s1<0)
+    {
+        cout<<"\n要移动的文件不存在。\n";
+        return -1;
+    }
+    fcbp1=fcbp;			//记下源文件目录项指针值
+    strcpy(gFileName,temppath);
+    i=strlen(temppath);
+    if (temppath[i-1]!='/')
+        strcat(gFileName,"/");
+    strcat(gFileName,FileName1);	//构造文件的全路径名
+    i=Check_UOF(gFileName);			//查UOF
+    if (i<S)						//该文件已在UOF中
+    {
+        cout<<"\n文件"<<gFileName<<"文件已经打开，不能移动!\n";
+        return -2;
+    }
+    if (k==1)		//命令中无目标文件,同名复制到当前目录
+    {
+        s02=curpath.fblock;	//取当前目录的首块号
+        FileName2=FileName1;
+    }
+    else	//k=2(命令中提供目标文件)的情况
+    {
+        s02=ProcessPath(comd[2],FileName2,k,0,'\20');//取FileName2所在目录的首块号
+        if (s02<1)			//目标路径错误
+            return s02;
+    }
+    if (!IsName(FileName2))		//若名字不符合规则
+    {
+        cout<<"\n命令中的目标文件名错误。\n";
+        return -2;
+    }
+    s2=FindFCB(FileName2,s02,'\040',fcbp);	//取FileName2(目标文件)的首块号(查其存在性)
+
+//	if (s2>=0 && fcbp->Fattrib<='\07')	//存在同名目标文件
+//	{
+//
+//	}
+    if (s2<0)		//FileName2尚不存在，在s02为首块号的目录内复制目标文件
+        s22=s02;
+    else			//FileName2存在，但它是目录名
+    {
+        s22=s2;
+        if (s2!=s01)		//源文件与目标文件不同目录
+        {
+            b=FindFCB(FileName1,s2,attrib,fcbp);//需查FileName2目录中有没有文件FileName1
+            if (b<0)
+            {
+                cout<<"\n指定目录中不含同名文件,无法取代。\n";
+                return -4;
+            }
+            FileName2=FileName1;	//缺省目标文件名，同名复制
+        }
+        else
+        {
+            cout<<"\n不能同目录同名复制。\n";
+            return -5;
+        }
+    }
+    i=FindBlankFCB(s22,fcbp2);
+    if (i<0)
+    {
+        cout<<"\n复制文件失败。\n";
+        return i;
+    }
+    size=fcbp1->Fsize;		//源文件的长度
+    bnum=size/SIZE+(short)(size%SIZE>0);	//计算源文件所占盘块数
+    if (FAT[0]<bnum)
+    {
+        cout<<"\n磁盘空间已满，不能复制文件。\n";
+        return -6;
+    }
+    *fcbp2=*fcbp1;						//源文件的目录项复制给目标文件
+    strcpy(fcbp2->FileName,FileName2);	//写目标文件名
+    b0=0;
+
+    swap(comd[1],comd[2]);
+    CdComd(1);
+    swap(comd[1],comd[2]);
+    s01=ProcessPath(comd[1],FileName1,k,0,'\20');//取FileName所在目录的首块号
+    FindFCB(comd[1],s01,attrib,fcbp3);
+    if((int)fcbp3->Fattrib == 2 || (int)fcbp3->Fattrib == 3 ||
+       (int)fcbp3->Fattrib == 4 || (int)fcbp3->Fattrib == 5 ||
+       (int)fcbp3->Fattrib == 6 || (int)fcbp3->Fattrib == 7)
+    {
+        cout<<"\n具有隐藏和系统属性的文件不能被取代。\n";
+        return -7;
+    }
+    DelComd(1);
+
+    while (s1>0)		//开始复制文件内容
+    {
+        b=getblock();
+        if (b0==0)
+            fcbp2->Addr=b;		//目标文件的首块号
+        else
+            FAT[b0]=b;
+        memcpy(Disk[b],Disk[s1],SIZE);	//复制盘块
+        s1=FAT[s1];				//准备复制下一个盘块
+        b0=b;
+    }
+    return 1;					//文件复制成功，返回
 }
